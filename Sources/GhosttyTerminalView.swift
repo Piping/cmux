@@ -199,9 +199,47 @@ struct TerminalBrowserHostNormalizer: BrowserHostNormalizing {
     }
 }
 
-func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
-    TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer())
-        .resolveOpenURLTarget(rawValue)
+private func cmuxStripTerminalOpenURLFragmentAndQuery(_ rawText: String) -> String {
+    var stripped = rawText
+    if let hashIndex = stripped.firstIndex(of: "#") {
+        stripped = String(stripped[..<hashIndex])
+    }
+    if let questionMarkIndex = stripped.firstIndex(of: "?") {
+        stripped = String(stripped[..<questionMarkIndex])
+    }
+    return stripped
+}
+
+private func cmuxResolveTerminalOpenURLLocalPath(
+    _ rawText: String,
+    cwd: String?,
+    fileExists: (String) -> Bool
+) -> String? {
+    let resolver = TerminalPathResolver(fileExists: fileExists)
+    if let resolvedPath = resolver.resolveOpenURLFilePath(rawText, cwd: cwd) {
+        return resolvedPath
+    }
+
+    let stripped = cmuxStripTerminalOpenURLFragmentAndQuery(rawText)
+    guard stripped != rawText else { return nil }
+    return resolver.resolveOpenURLFilePath(stripped, cwd: cwd)
+}
+
+func resolveTerminalOpenURLTarget(
+    _ rawValue: String,
+    cwd: String? = nil,
+    fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+) -> TerminalOpenURLTarget? {
+    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    if let localPath = cmuxResolveTerminalOpenURLLocalPath(trimmed, cwd: cwd, fileExists: fileExists) {
+        #if DEBUG
+        cmuxDebugLog("link.resolve result=external(relativePath) url=\(localPath)")
+        #endif
+        return .external(URL(fileURLWithPath: localPath))
+    }
+
+    return TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer())
+        .resolveOpenURLTarget(trimmed)
 }
 
 private var terminalKeyboardCopyModeIndicatorText: String {

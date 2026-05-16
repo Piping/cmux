@@ -5578,15 +5578,59 @@ final class TerminalOpenURLTargetResolutionTests: XCTestCase {
         }
     }
 
-    func testResolvesBareDomainAsEmbeddedBrowser() throws {
-        let target = try XCTUnwrap(resolveTerminalOpenURLTarget("example.com/docs"))
+    func testResolvesRelativeExistingFileAsExternalFileURL() throws {
+        let target = try XCTUnwrap(
+            resolveTerminalOpenURLTarget(
+                "docs/readme.md",
+                cwd: "/tmp/project",
+                fileExists: { path in
+                    (path as NSString).standardizingPath == "/tmp/project/docs/readme.md"
+                }
+            )
+        )
         switch target {
-        case let .embeddedBrowser(url):
-            XCTAssertEqual(url.scheme, "https")
-            XCTAssertEqual(url.host, "example.com")
-            XCTAssertEqual(url.path, "/docs")
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, "/tmp/project/docs/readme.md")
         default:
-            XCTFail("Expected bare domain to be normalized as an HTTPS browser URL")
+            XCTFail("Expected relative existing file path to open externally")
+        }
+    }
+
+    func testResolvesRelativeExistingFileWithFragmentAsExternalFileURL() throws {
+        let target = try XCTUnwrap(
+            resolveTerminalOpenURLTarget(
+                "docs/readme.md#L42",
+                cwd: "/tmp/project",
+                fileExists: { path in
+                    (path as NSString).standardizingPath == "/tmp/project/docs/readme.md"
+                }
+            )
+        )
+        switch target {
+        case let .external(url):
+            XCTAssertTrue(url.isFileURL)
+            XCTAssertEqual(url.path, "/tmp/project/docs/readme.md")
+        default:
+            XCTFail("Expected fragment-suffixed existing file path to open externally")
+        }
+    }
+
+    func testResolvesBareHostLikeTokenAsExternalWithoutSchemeNormalization() throws {
+        let target = try XCTUnwrap(
+            resolveTerminalOpenURLTarget(
+                "example.com/docs/readme",
+                cwd: "/tmp/project",
+                fileExists: { _ in false }
+            )
+        )
+        switch target {
+        case let .external(url):
+            XCTAssertFalse(url.isFileURL)
+            XCTAssertEqual(url.scheme, "example.com")
+            XCTAssertEqual(url.absoluteString, "example.com/docs/readme")
+        default:
+            XCTFail("Expected bare host-like token without a scheme to stay external")
         }
     }
 
