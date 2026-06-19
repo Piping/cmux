@@ -302,6 +302,8 @@ _cmux_normalize_claude_config_dir
 
 # Throttle heavy work to avoid prompt latency.
 typeset -g _CMUX_PWD_LAST_PWD=""
+typeset -g _CMUX_PWD_LAST_REPORT_AT=0
+typeset -g _CMUX_PWD_REPORT_INTERVAL=${CMUX_PWD_REPORT_INTERVAL:-5}
 typeset -g _CMUX_GIT_LAST_PWD=""
 typeset -g _CMUX_GIT_LAST_RUN=0
 typeset -g _CMUX_GIT_JOB_PID=""
@@ -333,6 +335,10 @@ typeset -g _CMUX_WINCH_GUARD_INSTALLED=0
 typeset -g _CMUX_TMUX_PUSH_SIGNATURE=""
 typeset -g _CMUX_TMUX_PULL_SIGNATURE=""
 typeset -g _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=${_CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT:-0}
+case "$_CMUX_PWD_REPORT_INTERVAL" in
+    ''|*[!0-9]*) _CMUX_PWD_REPORT_INTERVAL=5 ;;
+esac
+(( _CMUX_PWD_REPORT_INTERVAL > 0 )) || _CMUX_PWD_REPORT_INTERVAL=5
 typeset -ga _CMUX_TMUX_SYNC_KEYS=(
     CMUX_BUNDLED_CLI_PATH
     CMUX_BUNDLE_ID
@@ -436,6 +442,7 @@ _cmux_tmux_refresh_cmux_environment() {
         _CMUX_TTY_REPORTED=0
         _CMUX_SHELL_ACTIVITY_LAST=""
         _CMUX_PWD_LAST_PWD=""
+        _CMUX_PWD_LAST_REPORT_AT=0
         _CMUX_GIT_LAST_PWD=""
         _CMUX_GIT_HEAD_LAST_PWD=""
         _CMUX_GIT_HEAD_PATH=""
@@ -1671,10 +1678,12 @@ _cmux_precmd() {
         fi
     fi
 
-    # CWD: keep the app in sync with the actual shell directory.
-    # This is also the simplest way to test sidebar directory behavior end-to-end.
-    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
+    # CWD: keep the app in sync with the actual shell directory. Also retry
+    # periodically for the same directory so one missed socket write does not
+    # leave relative terminal file-clicks resolving against a stale cwd.
+    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]] || (( now - _CMUX_PWD_LAST_REPORT_AT >= _CMUX_PWD_REPORT_INTERVAL )); then
         _CMUX_PWD_LAST_PWD="$pwd"
+        _CMUX_PWD_LAST_REPORT_AT="$now"
         local qpwd="${pwd//\"/\\\"}"
         _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
     fi

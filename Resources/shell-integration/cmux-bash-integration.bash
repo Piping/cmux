@@ -323,6 +323,8 @@ _cmux_now() {
 
 # Throttle heavy work to avoid prompt latency.
 _CMUX_PWD_LAST_PWD="${_CMUX_PWD_LAST_PWD:-}"
+_CMUX_PWD_LAST_REPORT_AT="${_CMUX_PWD_LAST_REPORT_AT:-0}"
+_CMUX_PWD_REPORT_INTERVAL="${CMUX_PWD_REPORT_INTERVAL:-5}"
 _CMUX_GIT_LAST_PWD="${_CMUX_GIT_LAST_PWD:-}"
 _CMUX_GIT_LAST_RUN="${_CMUX_GIT_LAST_RUN:-0}"
 _CMUX_GIT_JOB_PID="${_CMUX_GIT_JOB_PID:-}"
@@ -343,6 +345,11 @@ _CMUX_LAST_PR_ACTION="${_CMUX_LAST_PR_ACTION:-}"
 _CMUX_LAST_PR_TARGET="${_CMUX_LAST_PR_TARGET:-}"
 _CMUX_PR_ACTION_HINT_FILE="${_CMUX_PR_ACTION_HINT_FILE:-${TMPDIR:-/tmp}/cmux-pr-action-$$}"
 _CMUX_BASH_HISTORY_LAST_FILE="${_CMUX_BASH_HISTORY_LAST_FILE:-${TMPDIR:-/tmp}/cmux-history-last-$$}"
+
+case "$_CMUX_PWD_REPORT_INTERVAL" in
+    ''|*[!0-9]*) _CMUX_PWD_REPORT_INTERVAL=5 ;;
+esac
+(( _CMUX_PWD_REPORT_INTERVAL > 0 )) || _CMUX_PWD_REPORT_INTERVAL=5
 
 _CMUX_PORTS_LAST_RUN="${_CMUX_PORTS_LAST_RUN:-0}"
 _CMUX_SHELL_ACTIVITY_LAST="${_CMUX_SHELL_ACTIVITY_LAST:-}"
@@ -455,6 +462,7 @@ _cmux_tmux_refresh_cmux_environment() {
         _CMUX_TTY_REPORTED=0
         _CMUX_SHELL_ACTIVITY_LAST=""
         _CMUX_PWD_LAST_PWD=""
+        _CMUX_PWD_LAST_REPORT_AT=0
         _CMUX_GIT_LAST_PWD=""
         _CMUX_GIT_HEAD_LAST_PWD=""
         _CMUX_GIT_HEAD_PATH=""
@@ -1507,9 +1515,12 @@ _cmux_prompt_command() {
 
     _cmux_report_tty_once
 
-    # CWD: keep the app in sync with the actual shell directory.
-    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
+    # CWD: keep the app in sync with the actual shell directory. Also retry
+    # periodically for the same directory so one missed socket write does not
+    # leave relative terminal file-clicks resolving against a stale cwd.
+    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]] || (( now - _CMUX_PWD_LAST_REPORT_AT >= _CMUX_PWD_REPORT_INTERVAL )); then
         _CMUX_PWD_LAST_PWD="$pwd"
+        _CMUX_PWD_LAST_REPORT_AT="$now"
         _cmux_spawn_detached _cmux_async_report_pwd "$pwd"
     fi
 
