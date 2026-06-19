@@ -7571,6 +7571,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         selectWhenNotFocused: Bool = false,
         insertAtEnd: Bool = false,
+        targetIndex: Int? = nil,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
         creationPolicy: BrowserPanelCreationPolicy = .userInitiated,
@@ -7636,8 +7637,11 @@ final class Workspace: Identifiable, ObservableObject {
         surfaceIdToPanelId[newTabId] = browserPanel.id
         setPreferredBrowserProfileID(browserPanel.profileID)
 
+        if let targetIndex {
+            _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
+        }
         // Keyboard/browser-open paths want "new tab at end" regardless of global new-tab placement.
-        if insertAtEnd {
+        if insertAtEnd && targetIndex == nil {
             let targetIndex = max(0, bonsplitController.tabs(inPane: paneId).count - 1)
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -7738,7 +7742,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newMarkdownSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return newMarkdownSurface(
+                inPane: targetPane,
+                filePath: filePath,
+                focus: true,
+                targetIndex: insertionIndexToRightOfSelectedTab(inPane: targetPane)
+            )
         }
 
         return newMarkdownSplit(
@@ -8012,7 +8021,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
-            return newFilePreviewSurface(inPane: targetPane, filePath: filePath, focus: true)
+            return newFilePreviewSurface(
+                inPane: targetPane,
+                filePath: filePath,
+                focus: true,
+                targetIndex: insertionIndexToRightOfSelectedTab(inPane: targetPane)
+            )
         }
 
         guard let sourcePaneId = paneId(forPanelId: panelId) else { return nil }
@@ -8382,6 +8396,11 @@ final class Workspace: Identifiable, ObservableObject {
         guard let tabId = surfaceIdFromPanelId(panelId),
               let paneId = paneId(forPanelId: panelId) else { return nil }
         return bonsplitController.tabs(inPane: paneId).firstIndex(where: { $0.id == tabId })
+    }
+
+    func insertionIndexToRightOfSelectedTab(inPane paneId: PaneID) -> Int? {
+        guard let selectedTab = bonsplitController.selectedTab(inPane: paneId) else { return nil }
+        return insertionIndexToRight(of: selectedTab.id, inPane: paneId)
     }
 
     /// Returns the nearest right-side sibling pane for browser/file-preview placement.

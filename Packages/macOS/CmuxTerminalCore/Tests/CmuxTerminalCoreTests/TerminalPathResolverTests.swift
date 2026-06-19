@@ -14,6 +14,13 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         )
     }
 
+    @Test func trimsTrailingIdeographicFullStopAfterFile() {
+        #expect(
+            "docs/报告.pdf。".trimmingTrailingTerminalPunctuation()
+                == "docs/报告.pdf"
+        )
+    }
+
     @Test func trimsTrailingCommaInList() {
         #expect(
             "/tmp/fixtures/first.txt,".trimmingTrailingTerminalPunctuation()
@@ -105,6 +112,17 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         )
     }
 
+    @Test func resolvesRelativePathWithTrailingIdeographicFullStop() {
+        let cwd = "/Users/dev/project"
+        let existingFile = "/Users/dev/project/docs/报告.pdf"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveQuicklookPath(
+                "docs/报告.pdf。",
+                cwd: cwd
+            ) == existingFile
+        )
+    }
+
     @Test func returnsNilForRelativePathThatDoesNotExist() {
         #expect(
             TerminalPathResolver(fileExists: existsIn([])).resolveQuicklookPath(
@@ -168,14 +186,57 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
     @Test func textWithURLSchemeIsNeverTreatedAsFilePath() {
         #expect(
             TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFilePath(
-                "file:///tmp/test.md",
+                "mailto:test@example.com",
                 cwd: "/tmp"
             ) == nil
         )
+    }
+
+    @Test func resolvesFileURLAsLocalPath() {
+        let existingFile = "/tmp/test.md"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFilePath(
+                "file:///tmp/test.md",
+                cwd: "/tmp"
+            ) == existingFile
+        )
+    }
+
+    @Test func resolvesLocalhostURLPathRelativeToCwd() {
+        let existingFile = "/Users/dev/project/docs/report.pdf"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFilePath(
+                "http://localhost:5173/docs/report.pdf",
+                cwd: "/Users/dev/project"
+            ) == existingFile
+        )
+    }
+
+    @Test func resolvesPercentEncodedLocalhostURLPath() {
+        let existingFile = "/Users/dev/project/docs/report final.pdf"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFilePath(
+                "http://127.0.0.1:8080/docs/report%20final.pdf",
+                cwd: "/Users/dev/project"
+            ) == existingFile
+        )
+    }
+
+    @Test func resolvesViteFsLocalhostURLPathAsAbsolutePath() {
+        let existingFile = "/Users/dev/project/docs/report.pdf"
+        #expect(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveOpenURLFilePath(
+                "http://localhost:5173/@fs/Users/dev/project/docs/report.pdf",
+                cwd: "/tmp"
+            ) == existingFile
+        )
+    }
+
+    @Test func remoteHttpURLIsNeverTreatedAsFilePath() {
         #expect(
             TerminalPathResolver(fileExists: { _ in true }).resolveOpenURLFilePath(
-                "mailto:test@example.com",
-                cwd: "/tmp"
+                "https://example.com/docs/report.pdf",
+                cwd: "/Users/dev/project"
             ) == nil
         )
     }

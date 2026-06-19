@@ -8,7 +8,7 @@ import Foundation
 
 extension String {
     private static let sentencePunctuation: Set<Character> = [
-        ".", ",", ";", ":", "!", "?"
+        ".", ",", ";", ":", "!", "?", "。"
     ]
 
     private static let trailingQuotes: Set<Character> = [

@@ -102,7 +102,46 @@ public struct TerminalPathResolver: Sendable {
     public func resolveOpenURLFilePath(_ rawText: String, cwd: String?) -> String? {
         let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        guard URL(string: trimmed)?.scheme == nil else { return nil }
+        if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
+            switch scheme {
+            case "file":
+                guard url.isFileURL else { return nil }
+                return resolveQuicklookPath(url.path, cwd: nil)
+            case "http", "https":
+                guard Self.isLocalWebHost(url.host) else { return nil }
+                return resolveLocalWebURLPath(url.path, cwd: cwd)
+            default:
+                return nil
+            }
+        }
         return resolveQuicklookPath(trimmed, cwd: cwd)
+    }
+
+    private func resolveLocalWebURLPath(_ path: String, cwd: String?) -> String? {
+        let decodedPath = path.removingPercentEncoding ?? path
+        guard !decodedPath.isEmpty, decodedPath != "/" else { return nil }
+
+        if let absolutePath = resolveQuicklookPath(decodedPath, cwd: nil) {
+            return absolutePath
+        }
+
+        if decodedPath.hasPrefix("/@fs/") {
+            let fsPath = String(decodedPath.dropFirst("/@fs".count))
+            if let absolutePath = resolveQuicklookPath(fsPath, cwd: nil) {
+                return absolutePath
+            }
+        }
+
+        let relativePath = decodedPath.hasPrefix("/") ? String(decodedPath.dropFirst()) : decodedPath
+        return resolveQuicklookPath(relativePath, cwd: cwd)
+    }
+
+    private static func isLocalWebHost(_ host: String?) -> Bool {
+        guard let host = host?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !host.isEmpty else { return false }
+        return host == "localhost" ||
+            host == "127.0.0.1" ||
+            host == "::1" ||
+            host.hasSuffix(".localhost")
     }
 }

@@ -3,6 +3,11 @@ import CmuxSettings
 import Foundation
 
 enum CommandClickFileOpenRouter {
+    nonisolated static func shouldOpenLocalFileInEmbeddedBrowser(path: String) -> Bool {
+        let pathExtension = (path as NSString).pathExtension.lowercased()
+        return pathExtension == "html" || pathExtension == "htm"
+    }
+
     nonisolated static func shouldRouteInCmux(path: String) -> Bool {
         let store = FileRouteSettingsStore(defaults: .standard)
         return store.shouldRouteMarkdown(path: path)
@@ -15,6 +20,14 @@ enum CommandClickFileOpenRouter {
         sourcePanelId: UUID,
         filePath: String
     ) -> Bool {
+        if shouldOpenLocalFileInEmbeddedBrowser(path: filePath) {
+            return openLocalFileInEmbeddedBrowser(
+                workspace: workspace,
+                sourcePanelId: sourcePanelId,
+                filePath: filePath
+            )
+        }
+
         let store = FileRouteSettingsStore(defaults: .standard)
         if store.shouldRouteMarkdown(path: filePath),
            workspace.openOrFocusMarkdownSplit(from: sourcePanelId, filePath: filePath) != nil {
@@ -25,6 +38,29 @@ enum CommandClickFileOpenRouter {
             return false
         }
         return workspace.openOrFocusFilePreviewSplit(from: sourcePanelId, filePath: filePath) != nil
+    }
+
+    @MainActor
+    static func openLocalFileInEmbeddedBrowser(
+        workspace: Workspace,
+        sourcePanelId: UUID,
+        filePath: String
+    ) -> Bool {
+        let fileURL = URL(fileURLWithPath: filePath)
+        if let targetPane = workspace.preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
+            return workspace.newBrowserSurface(
+                inPane: targetPane,
+                url: fileURL,
+                focus: true,
+                targetIndex: workspace.insertionIndexToRightOfSelectedTab(inPane: targetPane)
+            ) != nil
+        }
+
+        return workspace.newBrowserSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            url: fileURL
+        ) != nil
     }
 
     /// Resolve the working directory for a terminal surface, preferring the

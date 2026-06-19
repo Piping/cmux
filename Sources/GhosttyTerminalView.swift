@@ -213,7 +213,7 @@ private func cmuxStripTerminalOpenURLFragmentAndQuery(_ rawText: String) -> Stri
 private func cmuxResolveTerminalOpenURLLocalPath(
     _ rawText: String,
     cwd: String?,
-    fileExists: (String) -> Bool
+    fileExists: @escaping @Sendable (String) -> Bool
 ) -> String? {
     let resolver = TerminalPathResolver(fileExists: fileExists)
     if let resolvedPath = resolver.resolveOpenURLFilePath(rawText, cwd: cwd) {
@@ -228,7 +228,7 @@ private func cmuxResolveTerminalOpenURLLocalPath(
 func resolveTerminalOpenURLTarget(
     _ rawValue: String,
     cwd: String? = nil,
-    fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    fileExists: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
 ) -> TerminalOpenURLTarget? {
     let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     if let localPath = cmuxResolveTerminalOpenURLLocalPath(trimmed, cwd: cwd, fileExists: fileExists) {
@@ -240,6 +240,10 @@ func resolveTerminalOpenURLTarget(
 
     return TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer())
         .resolveOpenURLTarget(trimmed)
+}
+
+private func cmuxTerminalShouldOpenLocalFileInEmbeddedBrowser(_ filePath: String) -> Bool {
+    CommandClickFileOpenRouter.shouldOpenLocalFileInEmbeddedBrowser(path: filePath)
 }
 
 private var terminalKeyboardCopyModeIndicatorText: String {
@@ -2553,7 +2557,12 @@ class GhosttyApp {
             #if DEBUG
             cmuxDebugLog("link.openURL opening in existing browser pane=\(targetPane)")
             #endif
-            openedInBrowser = workspace.newBrowserSurface(inPane: targetPane, url: url, focus: true) != nil
+            openedInBrowser = workspace.newBrowserSurface(
+                inPane: targetPane,
+                url: url,
+                focus: true,
+                targetIndex: workspace.insertionIndexToRightOfSelectedTab(inPane: targetPane)
+            ) != nil
         } else {
             #if DEBUG
             cmuxDebugLog("link.openURL opening as new browser split from surface=\(sourcePanelId)")
@@ -3079,6 +3088,9 @@ class GhosttyApp {
                     guard let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(trimmedUrlString, cwd: cwd) else {
                         return (false, nil)
                     }
+                    if cmuxTerminalShouldOpenLocalFileInEmbeddedBrowser(resolvedPath) {
+                        return (false, resolvedPath)
+                    }
                     guard CommandClickFileOpenRouter.shouldRouteInCmux(path: resolvedPath) else {
                         return (false, resolvedPath)
                     }
@@ -3129,6 +3141,33 @@ class GhosttyApp {
             if target.url.isFileURL,
                fileURLHost == nil || fileURLHost?.isEmpty == true || fileURLHost == "localhost" {
                 let fileURL = target.url
+                if cmuxTerminalShouldOpenLocalFileInEmbeddedBrowser(fileURL.path) {
+                    let sourceWorkspaceId = callbackTabId ?? surfaceView.tabId
+                    let sourcePanelId = callbackSurfaceId ?? surfaceView.terminalSurface?.id
+                    guard let sourceWorkspaceId,
+                          let sourcePanelId else {
+                        #if DEBUG
+                        cmuxDebugLog("link.openURL localHTML target but tabId/surfaceId=nil")
+                        #endif
+                        return false
+                    }
+                    Task { @MainActor [fileURL, sourceWorkspaceId, sourcePanelId] in
+                        let didOpen = Self.openEmbeddedBrowserLink(
+                            url: fileURL,
+                            sourceWorkspaceId: sourceWorkspaceId,
+                            sourcePanelId: sourcePanelId,
+                            host: "file"
+                        )
+                        guard didOpen else {
+                            #if DEBUG
+                            cmuxDebugLog("link.openURL deferred localHTML open failed url=\(fileURL)")
+                            #endif
+                            NSSound.beep()
+                            return
+                        }
+                    }
+                    return true
+                }
                 let routed: Bool = performOnMain {
                     guard let termSurface = surfaceView.terminalSurface,
                           let workspace = termSurface.owningWorkspace(),
