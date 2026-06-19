@@ -15,6 +15,14 @@ import CMUXDebugLog
 /// parses at all.
 public struct TerminalLinkRouter: Sendable {
     private let hostNormalizer: any BrowserHostNormalizing
+    private static let schemeLessFileExtensions: Set<String> = [
+        "app", "bash", "c", "cc", "cfg", "conf", "cpp", "css", "csv", "cxx",
+        "diff", "env", "fish", "go", "gradle", "h", "hpp", "htm", "html", "ini",
+        "ipynb", "java", "js", "json", "jsx", "kt", "kts", "less", "lock", "log",
+        "m", "markdown", "md", "mm", "patch", "php", "pl", "pm", "proto", "py",
+        "pyw", "rb", "rs", "sass", "scss", "sh", "sql", "svelte", "swift", "toml",
+        "ts", "tsx", "txt", "vue", "xml", "yaml", "yml", "zsh"
+    ]
 
     /// Creates a router that validates web hosts through the browser domain.
     ///
@@ -45,6 +53,13 @@ public struct TerminalLinkRouter: Sendable {
             logDebugEvent("link.resolve result=external(absolutePath) url=\(trimmed)")
             #endif
             return .external(URL(fileURLWithPath: trimmed))
+        }
+
+        if Self.isSchemeLessFileToken(trimmed) {
+            #if DEBUG
+            logDebugEvent("link.resolve result=nil (schemeLessFileToken) url=\(trimmed)")
+            #endif
+            return nil
         }
 
         if let parsed = URL(string: trimmed),
@@ -90,5 +105,33 @@ public struct TerminalLinkRouter: Sendable {
         logDebugEvent("link.resolve result=external(fallback) url=\(fallback)")
         #endif
         return .external(fallback)
+    }
+
+    private static func isSchemeLessFileToken(_ value: String) -> Bool {
+        let stripped = stripFragmentAndQuery(value)
+        guard !stripped.isEmpty,
+              stripped.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              URL(string: stripped)?.scheme == nil else {
+            return false
+        }
+        let ext = (stripped as NSString).pathExtension.lowercased()
+        return !ext.isEmpty && schemeLessFileExtensions.contains(ext)
+    }
+
+    private static func stripFragmentAndQuery(_ value: String) -> String {
+        var stripped = value
+        if let hashIndex = stripped.firstIndex(of: "#") {
+            stripped = String(stripped[..<hashIndex])
+        }
+        if let questionMarkIndex = stripped.firstIndex(of: "?") {
+            stripped = String(stripped[..<questionMarkIndex])
+        }
+        if let lineSuffixRange = stripped.range(
+            of: #":\d+(?::\d+)?$"#,
+            options: .regularExpression
+        ) {
+            stripped.removeSubrange(lineSuffixRange)
+        }
+        return stripped
     }
 }

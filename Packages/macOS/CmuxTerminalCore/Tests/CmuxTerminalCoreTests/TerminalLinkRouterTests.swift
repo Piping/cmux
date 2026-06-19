@@ -136,6 +136,13 @@ private struct StubHostNormalizer: BrowserHostNormalizing {
         #expect(url.absoluteString == "foo_bar")
     }
 
+    @Test func schemeLessSourceFileTokenDoesNotRouteAsBareDomain() {
+        #expect(router.resolveOpenURLTarget("train.py") == nil)
+        #expect(router.resolveOpenURLTarget("src/train.py") == nil)
+        #expect(router.resolveOpenURLTarget("train.py:42") == nil)
+        #expect(router.resolveOpenURLTarget("train.py#L42") == nil)
+    }
+
     @Test func openTargetURLAccessorReturnsDestination() throws {
         let embedded = try #require(router.resolveOpenURLTarget("https://example.com/a"))
         #expect(embedded.url.absoluteString == "https://example.com/a")
