@@ -82,7 +82,8 @@ public struct TerminalPathResolver: Sendable {
         column: Int,
         cwd: String
     ) -> (rawToken: String, path: String)? {
-        for rawToken in line.pathTokenCandidates(containingColumn: column) {
+        for candidate in line.pathTokenCandidates(containingColumn: column) {
+            let rawToken = candidate.token
             if let resolvedPath = resolveQuicklookPath(rawToken, cwd: cwd) {
                 return (rawToken, resolvedPath)
             }

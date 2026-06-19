@@ -7,6 +7,16 @@ import Foundation
 // (file-system probing) lives on `TerminalPathResolver`.
 
 extension String {
+    public struct TerminalPathTokenCandidate: Equatable, Sendable {
+        public let token: String
+        public let range: Range<Int>
+
+        public init(token: String, range: Range<Int>) {
+            self.token = token
+            self.range = range
+        }
+    }
+
     private static let sentencePunctuation: Set<Character> = [
         ".", ",", ";", ":", "!", "?", "。"
     ]
@@ -159,14 +169,14 @@ extension String {
     /// Path-token candidates around a column of a visible terminal line: the
     /// raw whitespace-delimited segment first, then the shell-escape-aware
     /// token.
-    func pathTokenCandidates(containingColumn column: Int) -> [String] {
-        var candidates: [String] = []
+    public func pathTokenCandidates(containingColumn column: Int) -> [TerminalPathTokenCandidate] {
+        var candidates: [TerminalPathTokenCandidate] = []
 
-        func append(_ candidate: String?) {
+        func append(_ candidate: TerminalPathTokenCandidate?) {
             guard let candidate else { return }
-            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, !candidates.contains(trimmed) else { return }
-            candidates.append(trimmed)
+            let trimmed = candidate.token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !candidates.contains(where: { $0.token == trimmed }) else { return }
+            candidates.append(TerminalPathTokenCandidate(token: trimmed, range: candidate.range))
         }
 
         append(rawPathSegment(containingColumn: column))
@@ -175,7 +185,7 @@ extension String {
         return candidates
     }
 
-    private func rawPathSegment(containingColumn column: Int) -> String? {
+    private func rawPathSegment(containingColumn column: Int) -> TerminalPathTokenCandidate? {
         let characters = Array(self)
         guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
         guard !characters.isHardPathDelimiter(at: column) else { return nil }
@@ -191,10 +201,11 @@ extension String {
         }
 
         let candidate = String(characters[start...end]).trimmingCharacters(in: .whitespacesAndNewlines)
-        return candidate.isEmpty ? nil : candidate
+        guard !candidate.isEmpty else { return nil }
+        return TerminalPathTokenCandidate(token: candidate, range: start..<(end + 1))
     }
 
-    private func shellEscapedToken(containingColumn column: Int) -> String? {
+    private func shellEscapedToken(containingColumn column: Int) -> TerminalPathTokenCandidate? {
         let characters = Array(self)
         guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
 
@@ -228,7 +239,7 @@ extension String {
             }
 
             if start < index, column >= start, column < index {
-                return String(characters[start..<index])
+                return TerminalPathTokenCandidate(token: String(characters[start..<index]), range: start..<index)
             }
         }
 

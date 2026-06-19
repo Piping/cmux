@@ -3467,17 +3467,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let path: String
         let source: WordPathResolutionSource
         let rawToken: String
+        let tokenColumnRange: Range<Int>?
     }
 
     private func makeWordPathResolution(
         path: String,
         source: WordPathResolutionSource,
-        rawToken: String
+        rawToken: String,
+        tokenColumnRange: Range<Int>? = nil
     ) -> WordPathResolution {
         WordPathResolution(
             path: path,
             source: source,
-            rawToken: rawToken
+            rawToken: rawToken,
+            tokenColumnRange: tokenColumnRange
         )
     }
 
@@ -3597,6 +3600,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyTables: [String] = []
     fileprivate private(set) var keyboardCopyModeActive = false
     private var wordPathHoverActive = false
+    private let wordPathUnderlineOverlayView = GhosttyFlashOverlayView(frame: .zero)
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
@@ -3709,10 +3713,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // input sequencing that needs to wait for terminal redraws.
         wantsLayer = true
         layer?.masksToBounds = true
+        setupWordPathUnderlineOverlay()
         setupKeyboardCopyModeCursorOverlay()
         installEventMonitor()
         updateTrackingAreas()
         registerForDraggedTypes(Array(Self.dropTypes))
+    }
+
+    private func setupWordPathUnderlineOverlay() {
+        wordPathUnderlineOverlayView.wantsLayer = true
+        wordPathUnderlineOverlayView.layer?.backgroundColor = NSColor.linkColor
+            .withAlphaComponent(0.95)
+            .cgColor
+        wordPathUnderlineOverlayView.layer?.cornerRadius = 0
+        wordPathUnderlineOverlayView.isHidden = true
+        addSubview(wordPathUnderlineOverlayView, positioned: .above, relativeTo: nil)
     }
 
     private func setupKeyboardCopyModeCursorOverlay() {
@@ -3889,6 +3904,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // Balance the cursor stack if the view is removed while hover is active
         if wordPathHoverActive {
             wordPathHoverActive = false
+            hideWordPathUnderlineOverlay()
             NSCursor.pop()
         }
 #if DEBUG
@@ -6294,6 +6310,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard cmdHeld, !suppressPathHover else {
             if wordPathHoverActive {
                 wordPathHoverActive = false
+                hideWordPathUnderlineOverlay()
                 NSCursor.pop()
             }
 #if DEBUG
@@ -6321,9 +6338,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 wordPathHoverActive = true
                 NSCursor.pointingHand.push()
             }
+            updateWordPathUnderlineOverlay(for: resolution, point: point)
         } else if wordPathHoverActive {
             wordPathHoverActive = false
+            hideWordPathUnderlineOverlay()
             NSCursor.pop()
+        } else {
+            hideWordPathUnderlineOverlay()
         }
 #if DEBUG
         if cmdHeld || hoverWasActive || wordPathHoverActive || resolution != nil {
@@ -6355,6 +6376,51 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             workspace: workspace,
             surfaceId: terminalSurface.id
         )
+    }
+
+    private func hideWordPathUnderlineOverlay() {
+        wordPathUnderlineOverlayView.isHidden = true
+    }
+
+    private func updateWordPathUnderlineOverlay(for resolution: WordPathResolution?, point: NSPoint?) {
+        guard let resolution,
+              resolution.source == .snapshot,
+              let tokenColumnRange = resolution.tokenColumnRange,
+              let point,
+              let surface else {
+            hideWordPathUnderlineOverlay()
+            return
+        }
+
+        let size = ghostty_surface_size(surface)
+        let rows = max(Int(size.rows), 1)
+        let cols = max(Int(size.columns), 1)
+        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
+        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
+        guard resolvedCellWidth > 0, resolvedCellHeight > 0 else {
+            hideWordPathUnderlineOverlay()
+            return
+        }
+
+        let xInset = max(0, (bounds.width - (CGFloat(cols) * resolvedCellWidth)) / 2)
+        let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
+        let yFromTop = bounds.height - point.y
+        let rowFromTop = max(0, min(rows - 1, Int((yFromTop - yInset) / resolvedCellHeight)))
+        let startColumn = max(0, min(cols - 1, tokenColumnRange.lowerBound))
+        let endColumn = max(startColumn + 1, min(cols, tokenColumnRange.upperBound))
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let lineHeight = max(1 / max(scale, 1), min(2, resolvedCellHeight * 0.08))
+        let x = xInset + CGFloat(startColumn) * resolvedCellWidth
+        let y = yInset + CGFloat(rowFromTop + 1) * resolvedCellHeight - lineHeight - max(1 / max(scale, 1), 1)
+        let width = CGFloat(endColumn - startColumn) * resolvedCellWidth
+
+        wordPathUnderlineOverlayView.frame = NSRect(
+            x: x,
+            y: y,
+            width: width,
+            height: lineHeight
+        )
+        wordPathUnderlineOverlayView.isHidden = false
     }
 
     private func pointIsUsableForWordResolution(_ point: NSPoint) -> Bool {
@@ -6413,18 +6479,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
 
         let column = max(0, min(cols - 1, viewportOffsetStart % cols))
+        let visibleLine = visibleLines[visibleRow]
         guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
-            visibleLines[visibleRow],
+            visibleLine,
             column: column,
             cwd: cwd
         ) else {
             return nil
         }
+        let tokenColumnRange = visibleLine.pathTokenCandidates(containingColumn: column)
+            .first { $0.token == resolution.rawToken }?
+            .range
 
         return makeWordPathResolution(
             path: resolution.path,
             source: .snapshot,
-            rawToken: resolution.rawToken
+            rawToken: resolution.rawToken,
+            tokenColumnRange: tokenColumnRange
         )
     }
 
@@ -6461,18 +6532,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
 
         let column = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
+        let visibleLine = visibleLines[visibleRow]
         guard let resolution = TerminalPathResolver().resolveVisibleLinePath(
-            visibleLines[visibleRow],
+            visibleLine,
             column: column,
             cwd: cwd
         ) else {
             return nil
         }
+        let tokenColumnRange = visibleLine.pathTokenCandidates(containingColumn: column)
+            .first { $0.token == resolution.rawToken }?
+            .range
 
         return makeWordPathResolution(
             path: resolution.path,
             source: .snapshot,
-            rawToken: resolution.rawToken
+            rawToken: resolution.rawToken,
+            tokenColumnRange: tokenColumnRange
         )
     }
 
@@ -7043,6 +7119,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func mouseExited(with event: NSEvent) {
         if wordPathHoverActive {
             wordPathHoverActive = false
+            hideWordPathUnderlineOverlay()
             NSCursor.pop()
         }
         guard let surface = surface else { return }
