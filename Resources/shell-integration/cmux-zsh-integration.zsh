@@ -1678,11 +1678,15 @@ _cmux_precmd() {
         fi
     fi
 
-    # CWD: keep the app in sync with the actual shell directory. Also retry
-    # periodically for the same directory so one missed socket write does not
-    # leave relative terminal file-clicks resolving against a stale cwd.
-    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]] || (( now - _CMUX_PWD_LAST_REPORT_AT >= _CMUX_PWD_REPORT_INTERVAL )); then
+    # CWD: keep the app in sync with the actual shell directory. Directory
+    # changes are reported synchronously so relative terminal file-clicks see
+    # the new cwd at the prompt after `cd`; same-directory retries stay async.
+    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
+        _CMUX_PWD_LAST_REPORT_AT="$now"
+        local qpwd="${pwd//\"/\\\"}"
+        _cmux_send "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+    elif (( now - _CMUX_PWD_LAST_REPORT_AT >= _CMUX_PWD_REPORT_INTERVAL )); then
         _CMUX_PWD_LAST_REPORT_AT="$now"
         local qpwd="${pwd//\"/\\\"}"
         _cmux_send_bg "report_pwd \"${qpwd}\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"

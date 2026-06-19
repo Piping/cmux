@@ -1515,11 +1515,14 @@ _cmux_prompt_command() {
 
     _cmux_report_tty_once
 
-    # CWD: keep the app in sync with the actual shell directory. Also retry
-    # periodically for the same directory so one missed socket write does not
-    # leave relative terminal file-clicks resolving against a stale cwd.
-    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]] || (( now - _CMUX_PWD_LAST_REPORT_AT >= _CMUX_PWD_REPORT_INTERVAL )); then
+    # CWD: keep the app in sync with the actual shell directory. Directory
+    # changes are reported synchronously so relative terminal file-clicks see
+    # the new cwd at the prompt after `cd`; same-directory retries stay async.
+    if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
         _CMUX_PWD_LAST_PWD="$pwd"
+        _CMUX_PWD_LAST_REPORT_AT="$now"
+        _cmux_async_report_pwd "$pwd"
+    elif (( now - _CMUX_PWD_LAST_REPORT_AT >= _CMUX_PWD_REPORT_INTERVAL )); then
         _CMUX_PWD_LAST_REPORT_AT="$now"
         _cmux_spawn_detached _cmux_async_report_pwd "$pwd"
     fi
