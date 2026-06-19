@@ -7741,12 +7741,13 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+        if shouldOpenTerminalFileClickAsSourcePaneTab(fromPanelId: panelId),
+           let targetPane = paneId(forPanelId: panelId) {
             return newMarkdownSurface(
                 inPane: targetPane,
                 filePath: filePath,
                 focus: true,
-                targetIndex: insertionIndexToRightOfSelectedTab(inPane: targetPane)
+                targetIndex: insertionIndexToRightOfPanel(panelId)
             )
         }
 
@@ -8020,12 +8021,13 @@ final class Workspace: Identifiable, ObservableObject {
             }
         }
 
-        if let targetPane = preferredRightSideTargetPane(fromPanelId: panelId) {
+        if shouldOpenTerminalFileClickAsSourcePaneTab(fromPanelId: panelId),
+           let targetPane = paneId(forPanelId: panelId) {
             return newFilePreviewSurface(
                 inPane: targetPane,
                 filePath: filePath,
                 focus: true,
-                targetIndex: insertionIndexToRightOfSelectedTab(inPane: targetPane)
+                targetIndex: insertionIndexToRightOfPanel(panelId)
             )
         }
 
@@ -8401,6 +8403,17 @@ final class Workspace: Identifiable, ObservableObject {
     func insertionIndexToRightOfSelectedTab(inPane paneId: PaneID) -> Int? {
         guard let selectedTab = bonsplitController.selectedTab(inPane: paneId) else { return nil }
         return insertionIndexToRight(of: selectedTab.id, inPane: paneId)
+    }
+
+    func insertionIndexToRightOfPanel(_ panelId: UUID) -> Int? {
+        guard let tabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId) else { return nil }
+        return insertionIndexToRight(of: tabId, inPane: paneId)
+    }
+
+    func shouldOpenTerminalFileClickAsSourcePaneTab(fromPanelId panelId: UUID) -> Bool {
+        guard paneId(forPanelId: panelId) != nil else { return false }
+        return bonsplitController.allPaneIds.count > 1
     }
 
     /// Returns the nearest right-side sibling pane for browser/file-preview placement.

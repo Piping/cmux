@@ -47,12 +47,13 @@ enum CommandClickFileOpenRouter {
         filePath: String
     ) -> Bool {
         let fileURL = URL(fileURLWithPath: filePath)
-        if let targetPane = workspace.preferredRightSideTargetPane(fromPanelId: sourcePanelId) {
+        if workspace.shouldOpenTerminalFileClickAsSourcePaneTab(fromPanelId: sourcePanelId),
+           let targetPane = workspace.paneId(forPanelId: sourcePanelId) {
             return workspace.newBrowserSurface(
                 inPane: targetPane,
                 url: fileURL,
                 focus: true,
-                targetIndex: workspace.insertionIndexToRightOfSelectedTab(inPane: targetPane)
+                targetIndex: workspace.insertionIndexToRightOfPanel(sourcePanelId)
             ) != nil
         }
 
