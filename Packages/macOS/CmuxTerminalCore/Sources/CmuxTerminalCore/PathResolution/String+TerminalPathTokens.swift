@@ -180,6 +180,7 @@ extension String {
         }
 
         append(rawPathSegment(containingColumn: column))
+        append(labelValuePathSegment(containingColumn: column))
         append(shellEscapedToken(containingColumn: column))
 
         return candidates
@@ -203,6 +204,30 @@ extension String {
         let candidate = String(characters[start...end]).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !candidate.isEmpty else { return nil }
         return TerminalPathTokenCandidate(token: candidate, range: start..<(end + 1))
+    }
+
+    private func labelValuePathSegment(containingColumn column: Int) -> TerminalPathTokenCandidate? {
+        let characters = Array(self)
+        guard !characters.isEmpty, column >= 0, column < characters.count else { return nil }
+
+        guard let labelEnd = characters[..<column].lastIndex(where: { $0.isPathLabelSeparator }) else {
+            return nil
+        }
+
+        var candidateStart = labelEnd + 1
+        while candidateStart < characters.count, characters[candidateStart].isWhitespace {
+            candidateStart += 1
+        }
+        guard candidateStart <= column else { return nil }
+
+        var end = column
+        while (end + 1) < characters.count, !characters.isHardPathDelimiter(at: end + 1) {
+            end += 1
+        }
+
+        let candidate = String(characters[candidateStart...end]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty else { return nil }
+        return TerminalPathTokenCandidate(token: candidate, range: candidateStart..<(end + 1))
     }
 
     private func shellEscapedToken(containingColumn column: Int) -> TerminalPathTokenCandidate? {
@@ -279,5 +304,11 @@ extension [Character] {
         let previousIsWhitespace = index > 0 && self[index - 1].isWhitespace
         let nextIsWhitespace = (index + 1) < count && self[index + 1].isWhitespace
         return previousIsWhitespace || nextIsWhitespace
+    }
+}
+
+extension Character {
+    fileprivate var isPathLabelSeparator: Bool {
+        self == ":" || self == "=" || self == ">"
     }
 }

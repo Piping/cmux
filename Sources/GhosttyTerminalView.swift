@@ -6384,8 +6384,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private func updateWordPathUnderlineOverlay(for resolution: WordPathResolution?, point: NSPoint?) {
         guard let resolution,
-              resolution.source == .snapshot,
-              let tokenColumnRange = resolution.tokenColumnRange,
               let point,
               let surface else {
             hideWordPathUnderlineOverlay()
@@ -6395,8 +6393,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let size = ghostty_surface_size(surface)
         let rows = max(Int(size.rows), 1)
         let cols = max(Int(size.columns), 1)
-        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
-        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
+        let (resolvedCellWidth, resolvedCellHeight) = visibleTerminalCellSize(
+            rows: rows,
+            columns: cols,
+            fallbackPixelWidth: CGFloat(size.cell_width_px),
+            fallbackPixelHeight: CGFloat(size.cell_height_px)
+        )
         guard resolvedCellWidth > 0, resolvedCellHeight > 0 else {
             hideWordPathUnderlineOverlay()
             return
@@ -6406,12 +6408,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let yInset = max(0, (bounds.height - (CGFloat(rows) * resolvedCellHeight)) / 2)
         let yFromTop = bounds.height - point.y
         let rowFromTop = max(0, min(rows - 1, Int((yFromTop - yInset) / resolvedCellHeight)))
+        let pointColumn = max(0, min(cols - 1, Int((point.x - xInset) / resolvedCellWidth)))
+        let tokenColumnRange = resolution.tokenColumnRange ?? visibleTokenColumnRange(
+            matching: resolution,
+            rowFromTop: rowFromTop,
+            column: pointColumn,
+            rows: rows,
+            columnCount: cols
+        ) ?? fallbackTokenColumnRange(
+            for: resolution,
+            containingColumn: pointColumn,
+            columnCount: cols
+        )
         let startColumn = max(0, min(cols - 1, tokenColumnRange.lowerBound))
         let endColumn = max(startColumn + 1, min(cols, tokenColumnRange.upperBound))
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         let lineHeight = max(1 / max(scale, 1), min(2, resolvedCellHeight * 0.08))
         let x = xInset + CGFloat(startColumn) * resolvedCellWidth
-        let y = yInset + CGFloat(rowFromTop + 1) * resolvedCellHeight - lineHeight - max(1 / max(scale, 1), 1)
+        let y = bounds.height - yInset - (CGFloat(rowFromTop + 1) * resolvedCellHeight) + max(1 / max(scale, 1), 1)
         let width = CGFloat(endColumn - startColumn) * resolvedCellWidth
 
         wordPathUnderlineOverlayView.frame = NSRect(
@@ -6421,6 +6435,73 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             height: lineHeight
         )
         wordPathUnderlineOverlayView.isHidden = false
+    }
+
+    private func visibleTerminalCellSize(
+        rows: Int,
+        columns: Int,
+        fallbackPixelWidth: CGFloat,
+        fallbackPixelHeight: CGFloat
+    ) -> (width: CGFloat, height: CGFloat) {
+        let rawWidth = cellSize.width > 0 ? cellSize.width : fallbackPixelWidth
+        let rawHeight = cellSize.height > 0 ? cellSize.height : fallbackPixelHeight
+        let viewWidth = columns > 0 ? bounds.width / CGFloat(columns) : rawWidth
+        let viewHeight = rows > 0 ? bounds.height / CGFloat(rows) : rawHeight
+        let width = viewWidth > 0 ? min(rawWidth, viewWidth) : rawWidth
+        let height = viewHeight > 0 ? min(rawHeight, viewHeight) : rawHeight
+        return (width, height)
+    }
+
+    private func visibleTokenColumnRange(
+        matching resolution: WordPathResolution,
+        rowFromTop: Int,
+        column: Int,
+        rows: Int,
+        columnCount: Int
+    ) -> Range<Int>? {
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace(),
+              let panel = workspace.terminalPanel(for: terminalSurface.id) else {
+            return nil
+        }
+
+        let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
+            terminalPanel: panel,
+            lineLimit: max(200, rows * 4)
+        ) ?? ""
+        let visibleLines = visibleText.visibleLines(rows: rows)
+        let rowOffset = max(0, rows - visibleLines.count)
+        let visibleRow = rowFromTop - rowOffset
+        guard visibleRow >= 0, visibleRow < visibleLines.count else { return nil }
+
+        let visibleLine = visibleLines[visibleRow]
+        let candidates = visibleLine.pathTokenCandidates(containingColumn: column)
+        let range = candidates.compactMap { candidate -> Range<Int>? in
+            if candidate.token == resolution.rawToken {
+                return candidate.range
+            }
+            if candidate.token.trimmingTrailingTerminalPunctuation() == resolution.rawToken {
+                let width = min(
+                    candidate.range.upperBound - candidate.range.lowerBound,
+                    resolution.rawToken.count
+                )
+                return candidate.range.lowerBound..<(candidate.range.lowerBound + width)
+            }
+            return nil
+        }.first ?? candidates.first?.range
+        return range.map {
+            max(0, min(columnCount, $0.lowerBound))..<max(0, min(columnCount, $0.upperBound))
+        }
+    }
+
+    private func fallbackTokenColumnRange(
+        for resolution: WordPathResolution,
+        containingColumn column: Int,
+        columnCount: Int
+    ) -> Range<Int> {
+        let tokenWidth = max(1, min(columnCount, resolution.rawToken.count))
+        let start = max(0, min(columnCount - tokenWidth, column - (tokenWidth / 2)))
+        return start..<(start + tokenWidth)
     }
 
     private func pointIsUsableForWordResolution(_ point: NSPoint) -> Bool {
@@ -6513,8 +6594,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let size = ghostty_surface_size(surface)
         let rows = max(Int(size.rows), 1)
         let cols = max(Int(size.columns), 1)
-        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
-        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
+        let (resolvedCellWidth, resolvedCellHeight) = visibleTerminalCellSize(
+            rows: rows,
+            columns: cols,
+            fallbackPixelWidth: CGFloat(size.cell_width_px),
+            fallbackPixelHeight: CGFloat(size.cell_height_px)
+        )
         guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
 
         let visibleText = TerminalController.shared.readTerminalTextForSnapshot(
@@ -6773,6 +6858,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         var payload: [String: Any] = [
             "hoverActive": wordPathHoverActive ? "1" : "0",
+            "underlineVisible": wordPathUnderlineOverlayView.isHidden ? "0" : "1",
+            "underlineFrame": NSStringFromRect(wordPathUnderlineOverlayView.frame),
             "suppressed": suppressCommandPathHover ? "1" : "0"
         ]
         if let resolution {

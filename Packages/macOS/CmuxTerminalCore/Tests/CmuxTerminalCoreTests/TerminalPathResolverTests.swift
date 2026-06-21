@@ -290,6 +290,25 @@ private func existsIn(_ existingPaths: Set<String>) -> @Sendable (String) -> Boo
         #expect(resolution.path == existingFile)
     }
 
+    @Test func resolvesLabelValueRelativePathWithSpaces() throws {
+        let existingFile = "/tmp/Cmd Hover Align.txt"
+        let line = "prefix: Cmd Hover Align.txt"
+        let resolution = try #require(
+            TerminalPathResolver(fileExists: existsIn([existingFile])).resolveVisibleLinePath(
+                line,
+                column: 10,
+                cwd: "/tmp"
+            )
+        )
+        #expect(resolution.path == existingFile)
+        #expect(resolution.rawToken == "Cmd Hover Align.txt")
+    }
+
+    @Test func labelValueCandidateKeepsVisibleColumnRange() {
+        let candidates = "prefix: Cmd Hover Align.txt".pathTokenCandidates(containingColumn: 10)
+        #expect(candidates.contains(.init(token: "Cmd Hover Align.txt", range: 8..<27)))
+    }
+
     @Test func returnsNilWhenColumnSitsOnHardDelimiter() {
         #expect(
             TerminalPathResolver(fileExists: { _ in true }).resolveVisibleLinePath(

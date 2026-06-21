@@ -2320,8 +2320,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let rows = max(Int(size.rows), 1)
             let cols = max(Int(size.columns), 1)
             let debugCellSize = terminalPanel.hostedView.debugCellSize
-            let cellWidth = debugCellSize.width > 0 ? debugCellSize.width : CGFloat(size.cell_width_px)
-            let cellHeight = debugCellSize.height > 0 ? debugCellSize.height : CGFloat(size.cell_height_px)
+            let rawCellWidth = debugCellSize.width > 0 ? debugCellSize.width : CGFloat(size.cell_width_px)
+            let rawCellHeight = debugCellSize.height > 0 ? debugCellSize.height : CGFloat(size.cell_height_px)
+            let viewCellWidth = bounds.width / CGFloat(cols)
+            let viewCellHeight = bounds.height / CGFloat(rows)
+            let cellWidth = viewCellWidth > 0 ? min(rawCellWidth, viewCellWidth) : rawCellWidth
+            let cellHeight = viewCellHeight > 0 ? min(rawCellHeight, viewCellHeight) : rawCellHeight
             guard cellWidth > 0, cellHeight > 0 else { return nil }
 
             let xInset = max(0, (bounds.width - (CGFloat(cols) * cellWidth)) / 2)

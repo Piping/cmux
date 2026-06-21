@@ -48,6 +48,16 @@ The app has a **Debug** menu in the macOS menu bar only in DEBUG builds. Use it 
 - Functions called from SwiftUI `body` must not mutate state or schedule store writes.
 - Foundation, SwiftUI, AttributeGraph, and WebKit semantics can change between macOS major versions. Test on the reporter's macOS before declaring a user repro disproven.
 
+## Terminal cmd-click geometry
+
+When debugging Cmd-hover underline or Cmd-click file path targeting in the terminal, verify hover and click together. Do not tune underline drawing independently from `resolveVisibleWordPath`; they must use the same visible cell geometry, row-from-top mapping, x/y insets, and token column range.
+
+- Prefer view-constrained cell size for visible text geometry: start from Ghostty/AppKit cell size, then clamp by `bounds.width / columns` and `bounds.height / rows`.
+- Treat AppKit points as bottom-left, but terminal row matching as y-from-top. Test harness payloads may store y-from-top and convert back to AppKit points.
+- Always include a non-zero-column fixture such as `prefix: Cmd Hover Align.txt`; column-zero paths can pass while label/value lines or files with spaces still fail.
+- If hover fails with a visible path after text such as `prefix: file name.txt`, inspect `String.pathTokenCandidates(containingColumn:)` and `TerminalPathResolver.resolveVisibleLinePath`, not just overlay math.
+- After changing geometry or tokenization, rebuild with `./scripts/reload.sh --tag <tag>` and run the UI command harness for both `hover_token` and `cmd_click_token`; passing hover alone is not enough.
+
 ## Detailed references
 
 - Read [references/debug-event-log.md](references/debug-event-log.md) when adding or interpreting debug log probes.
